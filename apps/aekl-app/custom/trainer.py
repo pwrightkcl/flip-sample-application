@@ -46,17 +46,15 @@ class FLIP_TRAINER(Executor):
         self.device = torch.device("cuda")
         self.model.to(self.device)
 
-        # TODO: Update LR
         self.optimizer_g = torch.optim.Adam(params=self.model.autoencoder.parameters(), lr=1e-4)
-        self.optimizer_d = torch.optim.Adam(params=self.model.discriminator.parameters(), lr=1e-4)
+        self.optimizer_d = torch.optim.Adam(params=self.model.discriminator.parameters(), lr=5e-4)
 
         self.scaler_g = GradScaler()
         self.scaler_d = GradScaler()
 
-        # TODO: Update values
-        self.kl_weight = 0.1
-        self.perceptual_weight = 0.1
-        self.adv_weight = 0.1
+        self.kl_weight = 1e-6
+        self.perceptual_weight = 0.001
+        self.adv_weight = 0.01
 
         self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
 
