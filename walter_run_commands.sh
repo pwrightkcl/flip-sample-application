@@ -3,8 +3,8 @@ docker run --gpus all --rm -it -v /media/walter/Storage/Projects/flip-sample-app
 bash start_nvflare_components.sh &
 ./poc/admin/startup/fl_admin.sh
 
-upload_app flip-app
+upload_app aekl-app
 set_run_number 1
-deploy_app flip-app all
+deploy_app aekl-app all
 start_app all
 

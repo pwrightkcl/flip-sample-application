@@ -20,7 +20,7 @@ from torch.cuda.amp import GradScaler, autocast
 
 from flip import FLIP
 from pt_constants import PTConstants
-from simple_network import kl_loss, PatchAdversarialLoss, SimpleNetwork
+from simple_network import kl_loss_function, PatchAdversarialLoss, SimpleNetwork
 
 
 class FLIP_TRAINER(Executor):
@@ -62,7 +62,7 @@ class FLIP_TRAINER(Executor):
         self._train_transforms = transforms.Compose(
             [
                 transforms.LoadImaged(keys=["image"], reader="NiBabelReader", as_closest_canonical=False),
-                transforms.AddChanneld(keys=["image"]),
+                transforms.EnsureChannelFirstd(keys=["image"]),
                 transforms.ScaleIntensityRanged(keys=["image"], a_min=-15, a_max=100, b_min=0, b_max=1, clip=True),
                 transforms.CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 256)),
                 transforms.SpatialPadd(keys=["image"], spatial_size=(512, 512, 256)),
@@ -129,7 +129,7 @@ class FLIP_TRAINER(Executor):
                 with autocast(enabled=True):
                     reconstruction, z_mu, z_sigma = self.model.autoencoder(x=images)
                     l1_loss = F.l1_loss(reconstruction.float(), images.float())
-                    kl_loss = kl_loss(z_mu, z_sigma)
+                    kl_loss = kl_loss_function(z_mu, z_sigma)
 
                     # TODO: Add perceptual loss
 
@@ -166,7 +166,7 @@ class FLIP_TRAINER(Executor):
 
                 epoch_recons_loss += l1_loss.item()
 
-            self.log_info(fl_ctx, f"Epoch: {epoch}/{self._epochs} Loss: {epoch_recons_loss / (step + 1)}")
+            self.log_info(fl_ctx, f"Epoch: {epoch+1}/{self._epochs} Loss: {epoch_recons_loss / (step + 1)}")
 
     def execute(
         self,
@@ -176,13 +176,13 @@ class FLIP_TRAINER(Executor):
         abort_signal: Signal,
     ) -> Shareable:
 
-        train_dict = self.get_datalist(self.dataframe)
-        self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
-        self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
-        self._n_iterations = len(self._train_loader)
-
         try:
             if task_name == self._train_task_name:
+                train_dict = self.get_datalist(self.dataframe)
+                self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
+                self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
+                self._n_iterations = len(self._train_loader)
+
                 # Get model weights
                 try:
                     dxo = from_shareable(shareable)

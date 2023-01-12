@@ -32,7 +32,7 @@ class FLIP_VALIDATOR(Executor):
         self.val_transforms = transforms.Compose(
             [
                 transforms.LoadImaged(keys=["image"], reader="NiBabelReader", as_closest_canonical=False),
-                transforms.AddChanneld(keys=["image"]),
+                transforms.EnsureChannelFirstd(keys=["image"]),
                 transforms.ScaleIntensityRanged(keys=["image"], a_min=-15, a_max=100, b_min=0, b_max=1, clip=True),
                 transforms.CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 256)),
                 transforms.SpatialPadd(keys=["image"], spatial_size=(512, 512, 256)),
@@ -99,11 +99,11 @@ class FLIP_VALIDATOR(Executor):
         abort_signal: Signal,
     ) -> Shareable:
 
-        test_dict = self.get_image_and_label_list(self.dataframe)
-        self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
-        self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
-
         if task_name == self._validate_task_name:
+            test_dict = self.get_datalist(self.dataframe)
+            self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
+            self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
+
             model_owner = "?"
             try:
                 try:
