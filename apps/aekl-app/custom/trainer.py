@@ -20,7 +20,7 @@ from torch.cuda.amp import GradScaler, autocast
 
 from flip import FLIP
 from pt_constants import PTConstants
-from simple_network import KL_loss, PatchAdversarialLoss, SimpleNetwork
+from simple_network import kl_loss, PatchAdversarialLoss, SimpleNetwork
 
 
 class FLIP_TRAINER(Executor):
@@ -129,7 +129,7 @@ class FLIP_TRAINER(Executor):
                 with autocast(enabled=True):
                     reconstruction, z_mu, z_sigma = self.model.autoencoder(x=images)
                     l1_loss = F.l1_loss(reconstruction.float(), images.float())
-                    kl_loss = KL_loss(z_mu, z_sigma)
+                    kl_loss = kl_loss(z_mu, z_sigma)
 
                     # TODO: Add perceptual loss
 
