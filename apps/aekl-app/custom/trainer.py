@@ -4,9 +4,9 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 import torch
-from flip import FLIP
-from monai.data import DataLoader, Dataset
+import torch.nn.functional as F
 from monai import transforms
+from monai.data import DataLoader, Dataset
 from nvflare.apis.dxo import DXO, DataKind, MetaKey, from_shareable
 from nvflare.apis.executor import Executor
 from nvflare.apis.fl_constant import ReservedKey, ReturnCode
@@ -16,9 +16,11 @@ from nvflare.apis.signal import Signal
 from nvflare.app_common.abstract.model import make_model_learnable, model_learnable_to_dxo
 from nvflare.app_common.app_constant import AppConstants
 from nvflare.app_common.pt.pt_fed_utils import PTModelPersistenceFormatManager
-from pt_constants import PTConstants
+from torch.cuda.amp import GradScaler, autocast
 
-from simple_network import SimpleNetwork
+from flip import FLIP
+from pt_constants import PTConstants
+from simple_network import KL_loss, PatchAdversarialLoss, SimpleNetwork
 
 
 class FLIP_TRAINER(Executor):
@@ -43,7 +45,20 @@ class FLIP_TRAINER(Executor):
         self.model = SimpleNetwork()
         self.device = torch.device("cuda")
         self.model.to(self.device)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001, weight_decay=0, amsgrad=True)
+
+        # TODO: Update LR
+        self.optimizer_g = torch.optim.Adam(params=self.model.autoencoder.parameters(), lr=1e-4)
+        self.optimizer_d = torch.optim.Adam(params=self.model.discriminator.parameters(), lr=1e-4)
+
+        self.scaler_g = GradScaler()
+        self.scaler_d = GradScaler()
+
+        # TODO: Update values
+        self.kl_weight = 0.1
+        self.perceptual_weight = 0.1
+        self.adv_weight = 0.1
+
+        self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
 
         # Setup transforms using dictionary-based transforms.
         self._train_transforms = transforms.Compose(
@@ -51,6 +66,9 @@ class FLIP_TRAINER(Executor):
                 transforms.LoadImaged(keys=["image"], reader="NiBabelReader", as_closest_canonical=False),
                 transforms.AddChanneld(keys=["image"]),
                 transforms.ScaleIntensityRanged(keys=["image"], a_min=-15, a_max=100, b_min=0, b_max=1, clip=True),
+                transforms.CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 256)),
+                transforms.SpatialPadd(keys=["image"], spatial_size=(512, 512, 256)),
+                transforms.Resized(keys=["image"], spatial_size=(64, 64, 32)),
                 transforms.ToTensord(keys=["image"]),
             ]
         )
@@ -93,15 +111,13 @@ class FLIP_TRAINER(Executor):
         print(f"Found {len(datalist)} files in train")
         return datalist
 
-    # TODO: Implement local train
     def local_train(self, fl_ctx, weights, abort_signal):
         self.model.load_state_dict(state_dict=weights)
-
         self.model.train()
+
         for epoch in range(self._epochs):
-            running_loss = 0.0
-            num_images = 0
-            for i, batch in enumerate(self._train_loader):
+            epoch_recons_loss = 0
+            for step, batch in enumerate(self._train_loader):
 
                 if abort_signal.triggered:
                     # If abort_signal is triggered, we simply return.
@@ -109,21 +125,50 @@ class FLIP_TRAINER(Executor):
                     return
 
                 images = batch["image"].to(self.device)
-                self.optimizer.zero_grad(set_to_none=True)
 
-                predictions = self.model(images)
-                cost = self.loss(predictions)
-                cost.backward()
-                self.optimizer.step()
+                # Generator part
+                self.optimizer_g.zero_grad(set_to_none=True)
+                with autocast(enabled=True):
+                    reconstruction, z_mu, z_sigma = self.model.autoencoder(x=images)
+                    l1_loss = F.l1_loss(reconstruction.float(), images.float())
+                    kl_loss = KL_loss(z_mu, z_sigma)
 
-                running_loss += cost.cpu().detach().numpy()
-                num_images += images.shape[0]
+                    # TODO: Add perceptual loss
 
-            average_loss = running_loss / num_images
-            self.log_info(
-                fl_ctx,
-                f"Epoch: {epoch}/{self._epochs}, Iteration: {i}, " f"Loss: {average_loss}",
-            )
+                    logits_fake = self.model.discriminator(reconstruction.contiguous().float())[-1]
+                    generator_loss = self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
+
+                    # loss = l1_loss + self.kl_weight * kl_loss + self.perceptual_weight * p_loss + self.adv_weight * generator_loss
+                    loss = l1_loss + self.kl_weight * kl_loss + self.adv_weight * generator_loss
+
+                    self.scaler_g.scale(loss).backward()
+                    self.scaler_g.unscale_(self.optimizer_g)
+                    torch.nn.utils.clip_grad_norm_(self.model.autoencoder.parameters(), 1)
+                    self.scaler_g.step(self.optimizer_g)
+                    self.scaler_g.update()
+
+                # Discriminator part
+                self.optimizer_d.zero_grad(set_to_none=True)
+
+                with autocast(enabled=True):
+                    logits_fake = self.model.discriminator(reconstruction.contiguous().detach())[-1]
+                    loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
+                    logits_real = self.model.discriminator(images.contiguous().detach())[-1]
+                    loss_d_real = self.adv_loss(logits_real, target_is_real=True, for_discriminator=True)
+                    discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
+
+                    d_loss = self.adv_weight * discriminator_loss
+                    d_loss = d_loss.mean()
+
+                self.scaler_d.scale(d_loss).backward()
+                self.scaler_d.unscale_(self.optimizer_d)
+                torch.nn.utils.clip_grad_norm_(self.model.discriminator.parameters(), 1)
+                self.scaler_d.step(self.optimizer_d)
+                self.scaler_d.update()
+
+                epoch_recons_loss += l1_loss.item()
+
+            self.log_info(fl_ctx, f"Epoch: {epoch}/{self._epochs} Loss: {epoch_recons_loss / (step + 1)}")
 
     def execute(
         self,
@@ -134,8 +179,6 @@ class FLIP_TRAINER(Executor):
     ) -> Shareable:
 
         train_dict = self.get_datalist(self.dataframe)
-        # NB only taking the first dict element here for quick testing - delete this line to actually train on the whole dataset:
-        # train_dict = train_dict[:1]
         self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
         self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
         self._n_iterations = len(self._train_loader)
