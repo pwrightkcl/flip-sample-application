@@ -18,7 +18,12 @@ def spatial_average(in_tens, keepdim=True):
 class squeezenet(torch.nn.Module):
     def __init__(self):
         super(squeezenet, self).__init__()
-        pretrained_features = tv.squeezenet1_1(pretrained=False).features
+        model = tv.squeezenet1_1(pretrained=False)
+        # TODO: Fix path
+        model.load_state_dict(torch.load("./squeezenet1_1-b8a52dc0.pth"))
+        # model.load_state_dict(torch.load("/nvflare/poc/site-1/run_1/app_site-1/custom/squeezenet1_1-b8a52dc0.pth"))
+        pretrained_features = model.features
+
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
@@ -68,7 +73,7 @@ class squeezenet(torch.nn.Module):
 
 # Learned perceptual metric
 class LPIPS(nn.Module):
-    def __init__(self, pretrained=True, model_path=None, verbose=True):
+    def __init__(self):
 
         super().__init__()
         self.scaling_layer = ScalingLayer()
@@ -91,7 +96,8 @@ class LPIPS(nn.Module):
         self.lins = nn.ModuleList(self.lins)
 
         # TODO: fix path
-        model_path = "/nvflare/poc/site-1/run_1/app_site-1/custom/squeeze.pth"
+        # model_path = "/nvflare/poc/site-1/run_1/app_site-1/custom/squeeze.pth"
+        model_path = "./squeeze.pth"
         self.load_state_dict(torch.load(model_path, map_location="cpu"), strict=False)
 
         self.eval()
