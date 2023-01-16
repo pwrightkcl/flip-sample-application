@@ -8,3 +8,7 @@ set_run_number 1
 deploy_app aekl-app all
 start_app all
 
+upload_app ddpm-unconditioned-app
+set_run_number 1
+deploy_app ddpm-unconditioned-app all
+start_app all

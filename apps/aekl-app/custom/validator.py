@@ -36,7 +36,7 @@ class FLIP_VALIDATOR(Executor):
                 transforms.ScaleIntensityRanged(keys=["image"], a_min=-15, a_max=100, b_min=0, b_max=1, clip=True),
                 transforms.CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 256)),
                 transforms.SpatialPadd(keys=["image"], spatial_size=(512, 512, 256)),
-                transforms.Resized(keys=["image"], spatial_size=(64, 64, 32)),
+                transforms.Resized(keys=["image"], spatial_size=(96, 96, 48)),
                 transforms.ToTensord(keys=["image"]),
             ]
         )
@@ -102,7 +102,7 @@ class FLIP_VALIDATOR(Executor):
         if task_name == self._validate_task_name:
             test_dict = self.get_datalist(self.dataframe)
             self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
-            self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
+            self._test_loader = DataLoader(self._test_dataset, batch_size=2, shuffle=False)
 
             model_owner = "?"
             try:

@@ -17,7 +17,7 @@ from torch.cuda.amp import autocast
 
 from flip import FLIP
 from autoencoderkl import AutoencoderKL
-from diffusion_model_unet import DiffusionModelUNet
+from simple_network import SimpleNetwork
 from ddpm import DDPMScheduler
 
 
@@ -28,16 +28,34 @@ class FLIP_VALIDATOR(Executor):
         self._validate_task_name = validate_task_name
 
         # TODO: Add configuration
-        self.model = DiffusionModelUNet()
-        self.scheduler = DDPMScheduler()
+        self.model = SimpleNetwork()
+        self.scheduler = DDPMScheduler(
+            num_train_timesteps=1000,
+            beta_schedule="linear",
+            beta_start=0.0015,
+            beta_end=0.0195,
+        )
 
-        self.autoencoderkl = AutoencoderKL()
-        self.autoencoderkl.load_state_dict(torch.load("autoencoderkl.pt"))
+        self.autoencoder = AutoencoderKL(
+            spatial_dims=3,
+            in_channels=1,
+            out_channels=1,
+            num_channels=32,
+            latent_channels=3,
+            ch_mult=(1, 2, 2),
+            num_res_blocks=1,
+            norm_num_groups=16,
+            attention_levels=(False, False, True),
+        )
+
+        # TODO: fix path
+        self.autoencoder.load_state_dict(torch.load("/nvflare/poc/site-1/run_1/app_site-1/custom/autoencoderkl.pt"))
+        # self.autoencoder.load_state_dict(torch.load("./autoencoderkl.pt"))
 
         self.device = torch.device("cuda")
 
         self.model.to(self.device)
-        self.autoencoderkl.to(self.device)
+        self.autoencoder.to(self.device)
 
         self.val_transforms = transforms.Compose(
             [
@@ -46,7 +64,7 @@ class FLIP_VALIDATOR(Executor):
                 transforms.ScaleIntensityRanged(keys=["image"], a_min=-15, a_max=100, b_min=0, b_max=1, clip=True),
                 transforms.CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 256)),
                 transforms.SpatialPadd(keys=["image"], spatial_size=(512, 512, 256)),
-                transforms.Resized(keys=["image"], spatial_size=(64, 64, 32)),
+                transforms.Resized(keys=["image"], spatial_size=(96, 96, 48)),
                 transforms.ToTensord(keys=["image"]),
             ]
         )
@@ -82,7 +100,7 @@ class FLIP_VALIDATOR(Executor):
     def local_validation(self, weights, abort_signal):
         self.model.load_state_dict(state_dict=weights)
         self.model.eval()
-        self.autoencoderkl.eval()
+        self.autoencoder.eval()
 
         epoch_loss = 0
         for step, batch in enumerate(self._test_loader):
@@ -102,7 +120,7 @@ class FLIP_VALIDATOR(Executor):
                     0, self.scheduler.num_train_timesteps, (images.shape[0],), device=self.device
                 ).long()
                 noisy_image = self.scheduler.add_noise(original_samples=latents, noise=noise, timesteps=timesteps)
-                prediction = self.model(x=noisy_image, timesteps=timesteps)
+                prediction = self.model.diffusion(x=noisy_image, timesteps=timesteps)
 
                 loss = F.mse_loss(prediction.float(), noise.float())
 
@@ -121,7 +139,7 @@ class FLIP_VALIDATOR(Executor):
         if task_name == self._validate_task_name:
             test_dict = self.get_datalist(self.dataframe)
             self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
-            self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
+            self._test_loader = DataLoader(self._test_dataset, batch_size=2, shuffle=False)
 
             model_owner = "?"
             try:

@@ -19,6 +19,7 @@ from nvflare.app_common.pt.pt_fed_utils import PTModelPersistenceFormatManager
 from torch.cuda.amp import GradScaler, autocast
 
 from flip import FLIP
+from perceptual_loss import PerceptualLoss
 from pt_constants import PTConstants
 from simple_network import kl_loss_function, PatchAdversarialLoss, SimpleNetwork
 
@@ -57,6 +58,8 @@ class FLIP_TRAINER(Executor):
         self.adv_weight = 0.01
 
         self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
+        self.perceptual_loss = PerceptualLoss(spatial_dims=3, network_type="squeeze", fake_3d_ratio=0.3, is_fake_3d=True)
+        self.perceptual_loss.to(self.device)
 
         # Setup transforms using dictionary-based transforms.
         self._train_transforms = transforms.Compose(
@@ -66,7 +69,7 @@ class FLIP_TRAINER(Executor):
                 transforms.ScaleIntensityRanged(keys=["image"], a_min=-15, a_max=100, b_min=0, b_max=1, clip=True),
                 transforms.CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 256)),
                 transforms.SpatialPadd(keys=["image"], spatial_size=(512, 512, 256)),
-                transforms.Resized(keys=["image"], spatial_size=(64, 64, 32)),
+                transforms.Resized(keys=["image"], spatial_size=(96, 96, 48)),
                 transforms.ToTensord(keys=["image"]),
             ]
         )
@@ -131,13 +134,12 @@ class FLIP_TRAINER(Executor):
                     l1_loss = F.l1_loss(reconstruction.float(), images.float())
                     kl_loss = kl_loss_function(z_mu, z_sigma)
 
-                    # TODO: Add perceptual loss
+                    p_loss = self.perceptual_loss(reconstruction.float(), images.float())
 
                     logits_fake = self.model.discriminator(reconstruction.contiguous().float())[-1]
                     generator_loss = self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
 
-                    # loss = l1_loss + self.kl_weight * kl_loss + self.perceptual_weight * p_loss + self.adv_weight * generator_loss
-                    loss = l1_loss + self.kl_weight * kl_loss + self.adv_weight * generator_loss
+                    loss = l1_loss + self.kl_weight * kl_loss + self.perceptual_weight * p_loss + self.adv_weight * generator_loss
 
                     self.scaler_g.scale(loss).backward()
                     self.scaler_g.unscale_(self.optimizer_g)
@@ -180,7 +182,7 @@ class FLIP_TRAINER(Executor):
             if task_name == self._train_task_name:
                 train_dict = self.get_datalist(self.dataframe)
                 self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
-                self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
+                self._train_loader = DataLoader(self._train_dataset, batch_size=2, shuffle=True, num_workers=1)
                 self._n_iterations = len(self._train_loader)
 
                 # Get model weights

@@ -21,7 +21,7 @@ from torch.cuda.amp import GradScaler, autocast
 from flip import FLIP
 from pt_constants import PTConstants
 from autoencoderkl import AutoencoderKL
-from diffusion_model_unet import DiffusionModelUNet
+from simple_network import SimpleNetwork
 from ddpm import DDPMScheduler
 
 
@@ -44,19 +44,35 @@ class FLIP_TRAINER(Executor):
         self._submit_model_task_name = submit_model_task_name
         self._exclude_vars = exclude_vars
 
-        # TODO: Add configuration
-        self.model = DiffusionModelUNet()
-        self.scheduler = DDPMScheduler()
+        self.model = SimpleNetwork()
+        self.scheduler = DDPMScheduler(
+            num_train_timesteps=1000,
+            beta_schedule="linear",
+            beta_start=0.0015,
+            beta_end=0.0195,
+        )
 
-        self.autoencoderkl = AutoencoderKL()
-        self.autoencoderkl.load_state_dict(torch.load("autoencoderkl.pt"))
+        self.autoencoder = AutoencoderKL(
+            spatial_dims=3,
+            in_channels=1,
+            out_channels=1,
+            num_channels=32,
+            latent_channels=3,
+            ch_mult=(1, 2, 2),
+            num_res_blocks=1,
+            norm_num_groups=16,
+            attention_levels=(False, False, True),
+        )
+
+        # TODO: fix path
+        self.autoencoder.load_state_dict(torch.load("/nvflare/poc/site-1/run_1/app_site-1/custom/autoencoderkl.pt"))
+        # self.autoencoder.load_state_dict(torch.load("./autoencoderkl.pt"))
 
         self.device = torch.device("cuda")
 
         self.model.to(self.device)
-        self.autoencoderkl.to(self.device)
+        self.autoencoder.to(self.device)
 
-        # TODO: Change learning rate
         self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=1e-4)
 
         self.scaler = GradScaler()
@@ -69,7 +85,7 @@ class FLIP_TRAINER(Executor):
                 transforms.ScaleIntensityRanged(keys=["image"], a_min=-15, a_max=100, b_min=0, b_max=1, clip=True),
                 transforms.CenterSpatialCropd(keys=["image"], roi_size=(512, 512, 256)),
                 transforms.SpatialPadd(keys=["image"], spatial_size=(512, 512, 256)),
-                transforms.Resized(keys=["image"], spatial_size=(64, 64, 32)),
+                transforms.Resized(keys=["image"], spatial_size=(96, 96, 48)),
                 transforms.ToTensord(keys=["image"]),
             ]
         )
@@ -115,7 +131,7 @@ class FLIP_TRAINER(Executor):
     def local_train(self, fl_ctx, weights, abort_signal):
         self.model.load_state_dict(state_dict=weights)
         self.model.train()
-        self.autoencoderkl.eval()
+        self.autoencoder.eval()
 
         for epoch in range(self._epochs):
             epoch_loss = 0
@@ -139,7 +155,7 @@ class FLIP_TRAINER(Executor):
                     ).long()
 
                     noisy_image = self.scheduler.add_noise(original_samples=latents, noise=noise, timesteps=timesteps)
-                    prediction = self.model(x=noisy_image, timesteps=timesteps)
+                    prediction = self.model.diffusion(x=noisy_image, timesteps=timesteps)
 
                     loss = F.mse_loss(prediction.float(), noise.float())
 
@@ -163,7 +179,7 @@ class FLIP_TRAINER(Executor):
             if task_name == self._train_task_name:
                 train_dict = self.get_datalist(self.dataframe)
                 self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
-                self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
+                self._train_loader = DataLoader(self._train_dataset, batch_size=2, shuffle=True, num_workers=1)
                 self._n_iterations = len(self._train_loader)
 
                 # Get model weights
