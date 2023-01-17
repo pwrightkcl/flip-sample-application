@@ -102,7 +102,7 @@ class FLIP_VALIDATOR(Executor):
         if task_name == self._validate_task_name:
             test_dict = self.get_datalist(self.dataframe)
             self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
-            self._test_loader = DataLoader(self._test_dataset, batch_size=2, shuffle=False)
+            self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
 
             model_owner = "?"
             try:

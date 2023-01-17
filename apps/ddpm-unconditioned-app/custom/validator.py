@@ -48,9 +48,9 @@ class FLIP_VALIDATOR(Executor):
             attention_levels=(False, False, True),
         )
 
-        # TODO: fix path
-        self.autoencoder.load_state_dict(torch.load("/nvflare/poc/site-1/run_1/app_site-1/custom/autoencoderkl.pt"))
-        # self.autoencoder.load_state_dict(torch.load("./autoencoderkl.pt"))
+        working_dir = Path(__file__).parent.resolve()
+        model_path = str(working_dir / "autoencoderkl.pt")
+        self.autoencoder.load_state_dict(torch.load(model_path))
 
         self.device = torch.device("cuda")
 

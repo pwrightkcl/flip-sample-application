@@ -1,4 +1,5 @@
 from collections import namedtuple
+from pathlib import Path
 
 import torch
 import torch.nn
@@ -19,9 +20,10 @@ class squeezenet(torch.nn.Module):
     def __init__(self):
         super(squeezenet, self).__init__()
         model = tv.squeezenet1_1(pretrained=False)
-        # TODO: Fix path
-        model.load_state_dict(torch.load("./squeezenet1_1-b8a52dc0.pth"))
-        # model.load_state_dict(torch.load("/nvflare/poc/site-1/run_1/app_site-1/custom/squeezenet1_1-b8a52dc0.pth"))
+
+        working_dir = Path(__file__).parent.resolve()
+        model_path = str(working_dir / "squeezenet1_1-b8a52dc0.pth")
+        model.load_state_dict(torch.load(model_path))
         pretrained_features = model.features
 
         self.slice1 = torch.nn.Sequential()
@@ -95,9 +97,8 @@ class LPIPS(nn.Module):
         self.lins += [self.lin5, self.lin6]
         self.lins = nn.ModuleList(self.lins)
 
-        # TODO: fix path
-        # model_path = "/nvflare/poc/site-1/run_1/app_site-1/custom/squeeze.pth"
-        model_path = "./squeeze.pth"
+        working_dir = Path(__file__).parent.resolve()
+        model_path = str(working_dir / "squeeze.pth")
         self.load_state_dict(torch.load(model_path, map_location="cpu"), strict=False)
 
         self.eval()

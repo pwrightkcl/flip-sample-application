@@ -182,7 +182,7 @@ class FLIP_TRAINER(Executor):
             if task_name == self._train_task_name:
                 train_dict = self.get_datalist(self.dataframe)
                 self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
-                self._train_loader = DataLoader(self._train_dataset, batch_size=2, shuffle=True, num_workers=1)
+                self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
                 self._n_iterations = len(self._train_loader)
 
                 # Get model weights
