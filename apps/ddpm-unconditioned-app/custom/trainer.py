@@ -65,10 +65,15 @@ class FLIP_TRAINER(Executor):
         )
 
         working_dir = Path(__file__).parent.resolve()
-        model_path = str(working_dir / "autoencoderkl.pt")
-        self.autoencoder.load_state_dict(torch.load(model_path))
+        model_path = working_dir / "autoencoderkl.pt"
 
-        self.device = torch.device("cuda")
+        if not model_path.exists():
+            print(f"File does not exist: {str(model_path)}")
+            return
+
+        self.autoencoder.load_state_dict(torch.load(str(model_path)))
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         self.model.to(self.device)
         self.autoencoder.to(self.device)
@@ -113,10 +118,12 @@ class FLIP_TRAINER(Executor):
         datalist = []
         for accession_id in train_dataframe["accession_id"]:
             try:
-                accession_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+                image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+                # TODO: Not working in testing docker container
+                accession_folder_path = Path(image_data_folder_path) / accession_id
+                # accession_folder_path = Path(image_data_folder_path)
 
-                all_images = list(Path(accession_folder_path).rglob("*.nii*"))
-                for image in all_images:
+                for image in list(accession_folder_path.rglob("*.nii*")):
                     header = nib.load(str(image))
 
                     # check is 3D and at least 128x128x128 in size
@@ -166,6 +173,7 @@ class FLIP_TRAINER(Executor):
                 epoch_loss += loss.item()
 
             self.log_info(fl_ctx, f"Epoch: {epoch+1}/{self._epochs} Loss: {epoch_loss / (step + 1)}")
+            self.flip.send_metrics_value("Loss", epoch_loss / (step + 1), fl_ctx)
 
     def execute(
         self,

@@ -23,7 +23,7 @@ class squeezenet(torch.nn.Module):
 
         working_dir = Path(__file__).parent.resolve()
         model_path = working_dir / "squeezenet1_1-b8a52dc0.pth"
-        if model_path.exists():
+        if not model_path.exists():
             print(f"File does not exist: {str(model_path)}")
             return
 
@@ -103,7 +103,7 @@ class LPIPS(nn.Module):
 
         working_dir = Path(__file__).parent.resolve()
         model_path = working_dir / "squeeze.pth"
-        if model_path.exists():
+        if not model_path.exists():
             print(f"File does not exist: {str(model_path)}")
             return
 
@@ -160,5 +160,3 @@ class NetLinLayer(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-
-perceptual = LPIPS()

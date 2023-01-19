@@ -58,7 +58,9 @@ class FLIP_TRAINER(Executor):
         self.adv_weight = 0.01
 
         self.adv_loss = PatchAdversarialLoss(criterion="least_squares")
-        self.perceptual_loss = PerceptualLoss(spatial_dims=3, network_type="squeeze", fake_3d_ratio=0.3, is_fake_3d=True)
+        self.perceptual_loss = PerceptualLoss(
+            spatial_dims=3, network_type="squeeze", fake_3d_ratio=0.3, is_fake_3d=True
+        )
         self.perceptual_loss.to(self.device)
 
         # Setup transforms using dictionary-based transforms.
@@ -98,7 +100,9 @@ class FLIP_TRAINER(Executor):
         for accession_id in train_dataframe["accession_id"]:
             try:
                 image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+                # TODO: Not working in testing docker container
                 accession_folder_path = Path(image_data_folder_path) / accession_id
+                # accession_folder_path = Path(image_data_folder_path)
 
                 for image in list(accession_folder_path.rglob("*.nii*")):
                     header = nib.load(str(image))
@@ -119,6 +123,7 @@ class FLIP_TRAINER(Executor):
 
         for epoch in range(self._epochs):
             epoch_recons_loss = 0
+            epoch_discriminator_loss = 0
             for step, batch in enumerate(self._train_loader):
 
                 if abort_signal.triggered:
@@ -140,7 +145,12 @@ class FLIP_TRAINER(Executor):
                     logits_fake = self.model.discriminator(reconstruction.contiguous().float())[-1]
                     generator_loss = self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
 
-                    loss = l1_loss + self.kl_weight * kl_loss + self.perceptual_weight * p_loss + self.adv_weight * generator_loss
+                    loss = (
+                        l1_loss
+                        + self.kl_weight * kl_loss
+                        + self.perceptual_weight * p_loss
+                        + self.adv_weight * generator_loss
+                    )
 
                     self.scaler_g.scale(loss).backward()
                     self.scaler_g.unscale_(self.optimizer_g)
@@ -168,9 +178,14 @@ class FLIP_TRAINER(Executor):
                 self.scaler_d.update()
 
                 epoch_recons_loss += l1_loss.item()
+                epoch_discriminator_loss += d_loss.item()
 
-            self.log_info(fl_ctx, f"Epoch: {epoch+1}/{self._epochs} Loss: {epoch_recons_loss / (step + 1)}")
+            self.log_info(
+                fl_ctx,
+                f"Epoch: {epoch+1}/{self._epochs} Loss: {epoch_recons_loss / (step + 1)} Disc_Loss: {epoch_discriminator_loss / (step + 1)}",
+            )
             self.flip.send_metrics_value("Loss", epoch_recons_loss / (step + 1), fl_ctx)
+            self.flip.send_metrics_value("Disc_Loss", epoch_discriminator_loss / (step + 1), fl_ctx)
 
     def execute(
         self,
