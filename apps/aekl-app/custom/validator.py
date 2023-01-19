@@ -48,14 +48,13 @@ class FLIP_VALIDATOR(Executor):
         self.dataframe = self.flip.get_dataframe(self.project_id, self.query)
 
     def get_datalist(self, dataframe, val_split=0.2):
-        """Returns datalist for validation."""
+        """ Returns datalist for validation. """
         _, val_dataframe = np.split(dataframe, [int((1 - val_split) * len(dataframe))])
 
         datalist = []
         for accession_id in val_dataframe["accession_id"]:
             try:
                 image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
-
                 # TODO: Not working in testing docker container
                 accession_folder_path = Path(image_data_folder_path) / accession_id
                 # accession_folder_path = Path(image_data_folder_path)
@@ -103,14 +102,14 @@ class FLIP_VALIDATOR(Executor):
         fl_ctx: FLContext,
         abort_signal: Signal,
     ) -> Shareable:
+        model_owner = "?"
+        try:
+            if task_name == self._validate_task_name:
+                test_dict = self.get_datalist(self.dataframe)
+                self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
+                self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
 
-        if task_name == self._validate_task_name:
-            test_dict = self.get_datalist(self.dataframe)
-            self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
-            self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
-
-            model_owner = "?"
-            try:
+                # Get model weights
                 try:
                     dxo = from_shareable(shareable)
                 except:
@@ -129,22 +128,16 @@ class FLIP_VALIDATOR(Executor):
                 model_owner = shareable.get_header(AppConstants.MODEL_OWNER, "?")
                 weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
 
-                # Get validation accuracy
-                val_accuracy = self.local_validation(weights, abort_signal)
+                validation_loss = self.local_validation(weights, abort_signal)
                 if abort_signal.triggered:
                     return make_reply(ReturnCode.TASK_ABORTED)
 
-                self.log_info(
-                    fl_ctx,
-                    f"Accuracy when validating {model_owner}'s model on"
-                    f" {fl_ctx.get_identity_name()}"
-                    f"s data: {val_accuracy}",
-                )
-
-                dxo = DXO(data_kind=DataKind.METRICS, data={"val_acc": val_accuracy})
+                dxo = DXO(data_kind=DataKind.METRICS, data={"validation_loss": validation_loss})
                 return dxo.to_shareable()
-            except:
-                self.log_exception(fl_ctx, f"Exception in validating model from {model_owner}")
-                return make_reply(ReturnCode.EXECUTION_EXCEPTION)
-        else:
-            return make_reply(ReturnCode.TASK_UNKNOWN)
+
+            else:
+                return make_reply(ReturnCode.TASK_UNKNOWN)
+
+        except Exception as e:
+            self.log_exception(fl_ctx, f"Exception in validating model from {model_owner}")
+            return make_reply(ReturnCode.EXECUTION_EXCEPTION)

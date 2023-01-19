@@ -93,7 +93,7 @@ class FLIP_TRAINER(Executor):
         self.query = query
 
     def get_datalist(self, dataframe, val_split=0.2):
-        """Returns datalist for training."""
+        """ Returns datalist for training. """
         train_dataframe, _ = np.split(dataframe, [int((1 - val_split) * len(dataframe))])
 
         datalist = []
@@ -206,22 +206,20 @@ class FLIP_TRAINER(Executor):
                 try:
                     dxo = from_shareable(shareable)
                 except:
-                    self.log_error(fl_ctx, "Unable to extract dxo from shareable.")
+                    self.log_error(fl_ctx, "Error in extracting dxo from shareable.")
                     return make_reply(ReturnCode.BAD_TASK_DATA)
 
-                # Ensure data kind is weights.
+                # Ensure data_kind is weights.
                 if not dxo.data_kind == DataKind.WEIGHTS:
                     self.log_error(
                         fl_ctx,
-                        f"data_kind expected WEIGHTS but got {dxo.data_kind} instead.",
+                        f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
                     )
                     return make_reply(ReturnCode.BAD_TASK_DATA)
 
-                torch_weights = {k: torch.as_tensor(v) for k, v in dxo.data.items()}
-                self.local_train(fl_ctx, torch_weights, abort_signal)
+                weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
+                self.local_train(fl_ctx, weights, abort_signal)
 
-                # Check the abort_signal after training.
-                # local_train returns early if abort_signal is triggered.
                 if abort_signal.triggered:
                     return make_reply(ReturnCode.TASK_ABORTED)
 
@@ -246,7 +244,7 @@ class FLIP_TRAINER(Executor):
             else:
                 return make_reply(ReturnCode.TASK_UNKNOWN)
 
-        except:
+        except Exception as e:
             self.log_exception(fl_ctx, f"Exception in simple trainer.")
             return make_reply(ReturnCode.EXECUTION_EXCEPTION)
 
