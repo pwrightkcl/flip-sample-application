@@ -44,7 +44,7 @@ class FLIP_TRAINER(Executor):
         self._exclude_vars = exclude_vars
 
         self.model = SimpleNetwork()
-        self.device = torch.device("cuda")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
         self.optimizer_g = torch.optim.Adam(params=self.model.autoencoder.parameters(), lr=1e-4)
@@ -97,17 +97,18 @@ class FLIP_TRAINER(Executor):
         datalist = []
         for accession_id in train_dataframe["accession_id"]:
             try:
-                accession_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+                image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+                accession_folder_path = Path(image_data_folder_path) / accession_id
 
-                all_images = list(Path(accession_folder_path).rglob("*.nii*"))
-                for image in all_images:
+                for image in list(accession_folder_path.rglob("*.nii*")):
                     header = nib.load(str(image))
 
                     # check is 3D and at least 128x128x128 in size
                     if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
                         datalist.append({"image": str(image)})
-            except:
-                pass
+
+            except Exception as e:
+                print(e)
 
         print(f"Found {len(datalist)} files in train")
         return datalist
@@ -169,6 +170,7 @@ class FLIP_TRAINER(Executor):
                 epoch_recons_loss += l1_loss.item()
 
             self.log_info(fl_ctx, f"Epoch: {epoch+1}/{self._epochs} Loss: {epoch_recons_loss / (step + 1)}")
+            self.flip.send_metrics_value("Loss", epoch_recons_loss / (step + 1), fl_ctx)
 
     def execute(
         self,

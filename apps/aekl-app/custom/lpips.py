@@ -22,8 +22,12 @@ class squeezenet(torch.nn.Module):
         model = tv.squeezenet1_1(pretrained=False)
 
         working_dir = Path(__file__).parent.resolve()
-        model_path = str(working_dir / "squeezenet1_1-b8a52dc0.pth")
-        model.load_state_dict(torch.load(model_path))
+        model_path = working_dir / "squeezenet1_1-b8a52dc0.pth"
+        if model_path.exists():
+            print(f"File does not exist: {str(model_path)}")
+            return
+
+        model.load_state_dict(torch.load(str(model_path)))
         pretrained_features = model.features
 
         self.slice1 = torch.nn.Sequential()
@@ -98,8 +102,12 @@ class LPIPS(nn.Module):
         self.lins = nn.ModuleList(self.lins)
 
         working_dir = Path(__file__).parent.resolve()
-        model_path = str(working_dir / "squeeze.pth")
-        self.load_state_dict(torch.load(model_path, map_location="cpu"), strict=False)
+        model_path = working_dir / "squeeze.pth"
+        if model_path.exists():
+            print(f"File does not exist: {str(model_path)}")
+            return
+
+        self.load_state_dict(torch.load(str(model_path), map_location="cpu"), strict=False)
 
         self.eval()
 

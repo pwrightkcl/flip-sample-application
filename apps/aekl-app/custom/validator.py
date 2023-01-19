@@ -26,7 +26,7 @@ class FLIP_VALIDATOR(Executor):
         self._validate_task_name = validate_task_name
 
         self.model = SimpleNetwork()
-        self.device = torch.device("cuda")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
         self.val_transforms = transforms.Compose(
@@ -54,17 +54,19 @@ class FLIP_VALIDATOR(Executor):
         datalist = []
         for accession_id in val_dataframe["accession_id"]:
             try:
-                accession_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+                image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+                accession_folder_path = Path(image_data_folder_path) / accession_id
 
-                all_images = list(Path(accession_folder_path).rglob("*.nii*"))
-                for image in all_images:
+                for image in list(accession_folder_path.rglob("*.nii*")):
                     header = nib.load(str(image))
 
                     # check is 3D and at least 128x128x128 in size
                     if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
                         datalist.append({"image": str(image)})
-            except:
-                pass
+
+            except Exception as e:
+                print(e)
+
         print(f"Found {len(datalist)} files in the validation set")
         return datalist
 
