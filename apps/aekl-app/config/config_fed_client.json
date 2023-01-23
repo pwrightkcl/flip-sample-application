@@ -1,7 +1,9 @@
 {
   "format_version": 2,
+  "lr": 0.01,
   "project_id": "abcdefg123456789",
   "query": "SELECT * FROM Table;",
+  "local_rounds": 1,
   "executors": [
     {
       "tasks": [
@@ -11,6 +13,8 @@
       "executor": {
         "path": "trainer.FLIP_TRAINER",
         "args": {
+          "lr": "{lr}",
+          "epochs": "{local_rounds}",
           "project_id": "{project_id}",
           "query": "{query}"
         }

@@ -28,6 +28,8 @@ from ddpm import DDPMScheduler
 class FLIP_TRAINER(Executor):
     def __init__(
         self,
+        lr=1,
+        epochs=1,
         train_task_name=AppConstants.TASK_TRAIN,
         submit_model_task_name=AppConstants.TASK_SUBMIT_MODEL,
         exclude_vars=None,
