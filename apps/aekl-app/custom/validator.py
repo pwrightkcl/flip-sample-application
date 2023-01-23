@@ -48,7 +48,6 @@ class FLIP_VALIDATOR(Executor):
         self.dataframe = self.flip.get_dataframe(self.project_id, self.query)
 
     def get_datalist(self, dataframe, val_split=0.2):
-        """ Returns datalist for validation. """
         _, val_dataframe = np.split(dataframe, [int((1 - val_split) * len(dataframe))])
 
         datalist = []

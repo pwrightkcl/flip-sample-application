@@ -1,5 +1,5 @@
-import os.path
 from pathlib import Path
+import json
 
 import nibabel as nib
 import numpy as np
@@ -28,8 +28,6 @@ from ddpm import DDPMScheduler
 class FLIP_TRAINER(Executor):
     def __init__(
         self,
-        lr=0.01,
-        epochs=5,
         train_task_name=AppConstants.TASK_TRAIN,
         submit_model_task_name=AppConstants.TASK_SUBMIT_MODEL,
         exclude_vars=None,
@@ -37,12 +35,14 @@ class FLIP_TRAINER(Executor):
         query="",
     ):
         super().__init__()
-
-        self._lr = lr
-        self._epochs = epochs
         self._train_task_name = train_task_name
         self._submit_model_task_name = submit_model_task_name
         self._exclude_vars = exclude_vars
+
+        self.config = {}
+        working_dir = Path(__file__).parent.resolve()
+        with open(str(working_dir / "config.json")) as file:
+            self.config = json.load(file)
 
         self.model = SimpleNetwork()
         self.scheduler = DDPMScheduler(
@@ -112,7 +112,6 @@ class FLIP_TRAINER(Executor):
         self.query = query
 
     def get_datalist(self, dataframe, val_split=0.2):
-        """ Returns datalist for training. """
         train_dataframe, _ = np.split(dataframe, [int((1 - val_split) * len(dataframe))])
 
         datalist = []
@@ -127,8 +126,9 @@ class FLIP_TRAINER(Executor):
                     # check is 3D and at least 128x128x128 in size
                     if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
                         datalist.append({"image": str(image)})
-            except:
-                pass
+
+            except Exception as e:
+                print(e)
 
         print(f"Found {len(datalist)} files in the training set")
         return datalist
@@ -138,7 +138,7 @@ class FLIP_TRAINER(Executor):
         self.model.train()
         self.autoencoder.eval()
 
-        for epoch in range(self._epochs):
+        for epoch in range(self.config["LOCAL_ROUNDS"]):
             epoch_loss = 0
             for step, batch in enumerate(self._train_loader):
 
@@ -170,7 +170,7 @@ class FLIP_TRAINER(Executor):
 
                 epoch_loss += loss.item()
 
-            self.log_info(fl_ctx, f"Epoch: {epoch+1}/{self._epochs} Loss: {epoch_loss / (step + 1)}")
+            self.log_info(fl_ctx, f"Epoch: {epoch+1}/{self.config['LOCAL_ROUNDS']} Loss: {epoch_loss / (step + 1)}")
             self.flip.send_metrics_value("Loss", epoch_loss / (step + 1), fl_ctx)
 
     def execute(
@@ -236,24 +236,23 @@ class FLIP_TRAINER(Executor):
 
     def save_local_model(self, fl_ctx: FLContext):
         run_dir = fl_ctx.get_engine().get_workspace().get_run_dir(fl_ctx.get_prop(ReservedKey.RUN_NUM))
-        models_dir = os.path.join(run_dir, PTConstants.PTModelsDir)
-        if not os.path.exists(models_dir):
-            os.makedirs(models_dir)
-        model_path = os.path.join(models_dir, PTConstants.PTLocalModelName)
+        models_dir = Path(run_dir) / PTConstants.PTModelsDir
+        models_dir.mkdir(parents=True, exist_ok=True)
+        model_path = models_dir / PTConstants.PTLocalModelName
 
         ml = make_model_learnable(self.model.state_dict(), {})
         self.persistence_manager.update(ml)
-        torch.save(self.persistence_manager.to_persistence_dict(), model_path)
+        torch.save(self.persistence_manager.to_persistence_dict(), str(model_path))
 
     def load_local_model(self, fl_ctx: FLContext):
         run_dir = fl_ctx.get_engine().get_workspace().get_run_dir(fl_ctx.get_prop(ReservedKey.RUN_NUM))
-        models_dir = os.path.join(run_dir, PTConstants.PTModelsDir)
-        if not os.path.exists(models_dir):
+        models_dir = Path(run_dir) / PTConstants.PTModelsDir
+        if not models_dir.exists():
             return None
-        model_path = os.path.join(models_dir, PTConstants.PTLocalModelName)
+        model_path = models_dir / PTConstants.PTLocalModelName
 
         self.persistence_manager = PTModelPersistenceFormatManager(
-            data=torch.load(model_path), default_train_conf=self._default_train_conf
+            data=torch.load(str(model_path)), default_train_conf=self._default_train_conf
         )
         ml = self.persistence_manager.to_model_learnable(exclude_vars=self._exclude_vars)
         return ml
