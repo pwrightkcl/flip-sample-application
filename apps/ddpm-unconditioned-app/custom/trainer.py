@@ -119,9 +119,7 @@ class FLIP_TRAINER(Executor):
         for accession_id in train_dataframe["accession_id"]:
             try:
                 image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
-                # TODO: Not working in testing docker container
                 accession_folder_path = Path(image_data_folder_path) / accession_id
-                # accession_folder_path = Path(image_data_folder_path)
 
                 for image in list(accession_folder_path.rglob("*.nii*")):
                     header = nib.load(str(image))
