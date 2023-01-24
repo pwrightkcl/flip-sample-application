@@ -100,41 +100,32 @@ class FLIP_VALIDATOR(Executor):
         abort_signal: Signal,
     ) -> Shareable:
         model_owner = "?"
-        try:
-            if task_name == self._validate_task_name:
-                test_dict = self.get_datalist(self.dataframe)
-                self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
-                self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
+        if task_name == self._validate_task_name:
+            test_dict = self.get_datalist(self.dataframe)
+            self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
+            self._test_loader = DataLoader(self._test_dataset, batch_size=1, shuffle=False)
 
-                # Get model weights
-                try:
-                    dxo = from_shareable(shareable)
-                except:
-                    self.log_error(fl_ctx, "Error in extracting dxo from shareable.")
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
+            # Get model weights
+            dxo = from_shareable(shareable)
 
-                # Ensure data_kind is weights.
-                if not dxo.data_kind == DataKind.WEIGHTS:
-                    self.log_exception(
-                        fl_ctx,
-                        f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
-                    )
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
+            # Ensure data_kind is weights.
+            if not dxo.data_kind == DataKind.WEIGHTS:
+                self.log_exception(
+                    fl_ctx,
+                    f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
+                )
+                return make_reply(ReturnCode.BAD_TASK_DATA)
 
-                # Extract weights and ensure they are tensor.
-                model_owner = shareable.get_header(AppConstants.MODEL_OWNER, "?")
-                weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
+            # Extract weights and ensure they are tensor.
+            model_owner = shareable.get_header(AppConstants.MODEL_OWNER, "?")
+            weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
 
-                validation_loss = self.local_validation(weights, abort_signal)
-                if abort_signal.triggered:
-                    return make_reply(ReturnCode.TASK_ABORTED)
+            validation_loss = self.local_validation(weights, abort_signal)
+            if abort_signal.triggered:
+                return make_reply(ReturnCode.TASK_ABORTED)
 
-                dxo = DXO(data_kind=DataKind.METRICS, data={"validation_loss": validation_loss})
-                return dxo.to_shareable()
+            dxo = DXO(data_kind=DataKind.METRICS, data={"validation_loss": validation_loss})
+            return dxo.to_shareable()
 
-            else:
-                return make_reply(ReturnCode.TASK_UNKNOWN)
-
-        except Exception as e:
-            self.log_exception(fl_ctx, f"Exception in validating model from {model_owner}")
-            return make_reply(ReturnCode.EXECUTION_EXCEPTION)
+        else:
+            return make_reply(ReturnCode.TASK_UNKNOWN)

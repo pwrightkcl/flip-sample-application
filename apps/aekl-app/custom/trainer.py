@@ -198,58 +198,54 @@ class FLIP_TRAINER(Executor):
         abort_signal: Signal,
     ) -> Shareable:
 
-        try:
-            if task_name == self._train_task_name:
-                train_dict = self.get_datalist(self.dataframe)
-                self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
-                self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
-                self._n_iterations = len(self._train_loader)
+        if task_name == self._train_task_name:
+            train_dict = self.get_datalist(self.dataframe)
+            self._train_dataset = Dataset(train_dict, transform=self._train_transforms)
+            self._train_loader = DataLoader(self._train_dataset, batch_size=1, shuffle=True, num_workers=1)
+            self._n_iterations = len(self._train_loader)
 
-                # Get model weights
-                try:
-                    dxo = from_shareable(shareable)
-                except:
-                    self.log_error(fl_ctx, "Error in extracting dxo from shareable.")
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
+            # Get model weights
+            try:
+                dxo = from_shareable(shareable)
+            except:
+                self.log_error(fl_ctx, "Error in extracting dxo from shareable.")
+                return make_reply(ReturnCode.BAD_TASK_DATA)
 
-                # Ensure data_kind is weights.
-                if not dxo.data_kind == DataKind.WEIGHTS:
-                    self.log_error(
-                        fl_ctx,
-                        f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
-                    )
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
-
-                weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
-                self.local_train(fl_ctx, weights, abort_signal)
-
-                if abort_signal.triggered:
-                    return make_reply(ReturnCode.TASK_ABORTED)
-
-                self.save_local_model(fl_ctx)
-
-                # Get the new state dict and send as weights
-                new_weights = self.model.state_dict()
-                new_weights = {k: v.cpu().numpy() for k, v in new_weights.items()}
-
-                outgoing_dxo = DXO(
-                    data_kind=DataKind.WEIGHTS,
-                    data=new_weights,
-                    meta={MetaKey.NUM_STEPS_CURRENT_ROUND: self._n_iterations},
+            # Ensure data_kind is weights.
+            if not dxo.data_kind == DataKind.WEIGHTS:
+                self.log_error(
+                    fl_ctx,
+                    f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
                 )
-                return outgoing_dxo.to_shareable()
+                return make_reply(ReturnCode.BAD_TASK_DATA)
 
-            elif task_name == self._submit_model_task_name:
-                ml = self.load_local_model(fl_ctx)
-                dxo = model_learnable_to_dxo(ml)
-                return dxo.to_shareable()
+            weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
+            self.local_train(fl_ctx, weights, abort_signal)
 
-            else:
-                return make_reply(ReturnCode.TASK_UNKNOWN)
+            if abort_signal.triggered:
+                return make_reply(ReturnCode.TASK_ABORTED)
 
-        except Exception as e:
-            self.log_exception(fl_ctx, f"Exception in simple trainer.")
-            return make_reply(ReturnCode.EXECUTION_EXCEPTION)
+            self.save_local_model(fl_ctx)
+
+            # Get the new state dict and send as weights
+            new_weights = self.model.state_dict()
+            new_weights = {k: v.cpu().numpy() for k, v in new_weights.items()}
+
+            outgoing_dxo = DXO(
+                data_kind=DataKind.WEIGHTS,
+                data=new_weights,
+                meta={MetaKey.NUM_STEPS_CURRENT_ROUND: self._n_iterations},
+            )
+            return outgoing_dxo.to_shareable()
+
+        elif task_name == self._submit_model_task_name:
+            ml = self.load_local_model(fl_ctx)
+            dxo = model_learnable_to_dxo(ml)
+            return dxo.to_shareable()
+
+        else:
+            return make_reply(ReturnCode.TASK_UNKNOWN)
+
 
     def save_local_model(self, fl_ctx: FLContext):
         run_dir = fl_ctx.get_engine().get_workspace().get_run_dir(fl_ctx.get_prop(ReservedKey.RUN_NUM))
