@@ -118,29 +118,74 @@ class FLIP_TRAINER(Executor):
         self.project_id = project_id
         self.query = query
 
-    def get_image_and_label_list(self, dataframe, val_split=0.2):
+    def get_image_and_label_list(self, dataframe, val_split=0.5):
         """Returns a list of dicts, each dict containing the path to an image and its corresponding label."""
-        # split into the training and testing data
-        train_dataframe, val_dataframe = np.split(dataframe, [int((1 - val_split) * len(dataframe))])
+
         datalist = []
         # loop over each accession id in the train set
-        for accession_id in train_dataframe["accession_id"]:
-            image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+        for accession_id in dataframe["accession_id"]:
+            try:
+                image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+            except Exception as err:
+                print(f"Could not get image data folder path for {accession_id}:")
+                print(f"{err=}")
+                print(f"{type(err)=}")
+                print(f"{err.args=}")
+                continue
 
             accession_folder_path = os.path.join(image_data_folder_path, accession_id)
 
-            all_images = list(Path(accession_folder_path).rglob("*.nii*"))
+            all_images = list(Path(accession_folder_path).rglob("sub-*_desc-rigid_ct.nii"))
 
-            print(f"Total .nii count found for single accession_id: {len(all_images)}")
-            for image in all_images:
-                header = nib.load(str(image))
+            this_accession_matches = 0
+            print(f"Total base CT count found for accession_id {accession_id}: {len(all_images)}")
+            for img in all_images:
+                seg = str(img).replace('_ct', '_label-lesion_mask').replace('.nii', '.nii.gz')
 
-                # check is 3D and at least 128x128x128 in size
-                if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
-                    datalist.append({"img": str(image), "seg": str(image)})
+                if not Path(seg).exists():
+                    print(f"No matching lesion mask for {img}.")
+                    continue
 
+                try:
+                    img_header = nib.load(str(img))
+                except nib.filebasedimages.ImageFileError as err:
+                    print(f"Problem loading header of base image {str(img)}.")
+                    print(f"{err=}")
+                    print(f"{type(err)=}")
+                    print(f"{err.args=}")
+                    continue
+
+                try:
+                    seg_header = nib.load(seg)
+                except nib.filebasedimages.ImageFileError as err:
+                    print(f"Problem loading header of segmentation {str(seg)}.")
+                    print(f"{err=}")
+                    print(f"{type(err)=}")
+                    print(f"{err.args=}")
+                    continue
+
+                # check is 3D and at least 128x128x128 in size and seg is the same
+                if len(img_header.shape) != 3:
+                    print(f"Image has other than 3 dimensions (it has {len(img_header.shape)}.)")
+                    continue
+                elif any([dim < 128 for dim in img_header.shape]):
+                    print(f"Image has one or more dimensions <128: ({img_header.shape}).")
+                    continue
+                elif any([img_dim != seg_dim for img_dim, seg_dim in zip(img_header.shape, seg_header.shape)]):
+                    print(
+                        f"Image dimensions ({img_header.shape}) do not match segmentation dimensions ({seg_header.shape}).")
+                    continue
+                else:
+                    datalist.append({"img": str(img), "seg": seg})
+                    print(f"Matching base image and segmentation added.")
+                    this_accession_matches += 1
+            print(f"Added {this_accession_matches} matched image + segmentation pairs for {accession_id}.")
         print(f"Found {len(datalist)} files in train")
-        return datalist
+
+        # split into the training and testing data
+        train_datalist, val_datalist = np.split(datalist, [int((1 - val_split) * len(datalist))])
+
+        return train_datalist
 
     def local_train(self, fl_ctx, weights, abort_signal):
         # Set the model weights
