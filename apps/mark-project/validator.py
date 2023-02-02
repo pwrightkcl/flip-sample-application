@@ -120,42 +120,35 @@ class FLIP_VALIDATOR(Executor):
 
         if task_name == self._validate_task_name:
             model_owner = "?"
-            try:
-                try:
-                    dxo = from_shareable(shareable)
-                except:
-                    self.log_error(fl_ctx, "Error in extracting dxo from shareable.")
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
+            dxo = from_shareable(shareable)
 
-                # Ensure data_kind is weights.
-                if not dxo.data_kind == DataKind.WEIGHTS:
-                    self.log_exception(
-                        fl_ctx,
-                        f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
-                    )
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
-
-                # Extract weights and ensure they are tensor.
-                model_owner = shareable.get_header(AppConstants.MODEL_OWNER, "?")
-                weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
-
-                # Get validation accuracy
-                val_accuracy = self.do_validation(weights, abort_signal)
-                if abort_signal.triggered:
-                    return make_reply(ReturnCode.TASK_ABORTED)
-
-                self.log_info(
+            # Ensure data_kind is weights.
+            if not dxo.data_kind == DataKind.WEIGHTS:
+                self.log_exception(
                     fl_ctx,
-                    f"Accuracy when validating {model_owner}'s model on"
-                    f" {fl_ctx.get_identity_name()}"
-                    f"s data: {val_accuracy}",
+                    f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
                 )
+                return make_reply(ReturnCode.BAD_TASK_DATA)
 
-                dxo = DXO(data_kind=DataKind.METRICS, data={"val_acc": val_accuracy})
-                return dxo.to_shareable()
-            except:
-                self.log_exception(fl_ctx, f"Exception in validating model from {model_owner}")
-                return make_reply(ReturnCode.EXECUTION_EXCEPTION)
+            # Extract weights and ensure they are tensor.
+            model_owner = shareable.get_header(AppConstants.MODEL_OWNER, "?")
+            weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
+
+            # Get validation accuracy
+            val_accuracy = self.do_validation(weights, abort_signal)
+            if abort_signal.triggered:
+                return make_reply(ReturnCode.TASK_ABORTED)
+
+            self.log_info(
+                fl_ctx,
+                f"Accuracy when validating {model_owner}'s model on"
+                f" {fl_ctx.get_identity_name()}"
+                f"s data: {val_accuracy}",
+            )
+
+            dxo = DXO(data_kind=DataKind.METRICS, data={"val_acc": val_accuracy})
+            return dxo.to_shareable()
+
         else:
             return make_reply(ReturnCode.TASK_UNKNOWN)
 
