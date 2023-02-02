@@ -84,19 +84,15 @@ class FLIP_VALIDATOR(Executor):
 
         datalist = []
         for accession_id in val_dataframe["accession_id"]:
-            try:
-                image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
-                accession_folder_path = Path(image_data_folder_path) / accession_id
+            image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+            accession_folder_path = Path(image_data_folder_path) / accession_id
 
-                for image in list(accession_folder_path.rglob("*.nii*")):
-                    header = nib.load(str(image))
+            for image in list(accession_folder_path.rglob("*.nii*")):
+                header = nib.load(str(image))
 
-                    # check is 3D and at least 128x128x128 in size
-                    if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
-                        datalist.append({"image": str(image)})
-
-            except Exception as e:
-                print(e)
+                # check is 3D and at least 128x128x128 in size
+                if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
+                    datalist.append({"image": str(image)})
 
         print(f"Found {len(datalist)} files in the validation set")
         return datalist
@@ -141,41 +137,33 @@ class FLIP_VALIDATOR(Executor):
         abort_signal: Signal,
     ) -> Shareable:
         model_owner = "?"
-        try:
-            if task_name == self._validate_task_name:
-                test_dict = self.get_datalist(self.dataframe)
-                self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
-                self._test_loader = DataLoader(self._test_dataset, batch_size=2, shuffle=False)
+        if task_name == self._validate_task_name:
+            test_dict = self.get_datalist(self.dataframe)
+            self._test_dataset = Dataset(test_dict, transform=self.val_transforms)
+            self._test_loader = DataLoader(self._test_dataset, batch_size=2, shuffle=False)
 
-                # Get model weights
-                try:
-                    dxo = from_shareable(shareable)
-                except:
-                    self.log_error(fl_ctx, "Error in extracting dxo from shareable.")
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
+            # Get model weights
+            dxo = from_shareable(shareable)
 
-                # Ensure data_kind is weights.
-                if not dxo.data_kind == DataKind.WEIGHTS:
-                    self.log_exception(
-                        fl_ctx,
-                        f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
-                    )
-                    return make_reply(ReturnCode.BAD_TASK_DATA)
 
-                # Extract weights and ensure they are tensor.
-                model_owner = shareable.get_header(AppConstants.MODEL_OWNER, "?")
-                weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
+            # Ensure data_kind is weights.
+            if not dxo.data_kind == DataKind.WEIGHTS:
+                self.log_exception(
+                    fl_ctx,
+                    f"DXO is of type {dxo.data_kind} but expected type WEIGHTS.",
+                )
+                return make_reply(ReturnCode.BAD_TASK_DATA)
 
-                validation_loss = self.local_validation(weights, abort_signal)
-                if abort_signal.triggered:
-                    return make_reply(ReturnCode.TASK_ABORTED)
+            # Extract weights and ensure they are tensor.
+            model_owner = shareable.get_header(AppConstants.MODEL_OWNER, "?")
+            weights = {k: torch.as_tensor(v, device=self.device) for k, v in dxo.data.items()}
 
-                dxo = DXO(data_kind=DataKind.METRICS, data={"validation_loss": validation_loss})
-                return dxo.to_shareable()
+            validation_loss = self.local_validation(weights, abort_signal)
+            if abort_signal.triggered:
+                return make_reply(ReturnCode.TASK_ABORTED)
 
-            else:
-                return make_reply(ReturnCode.TASK_UNKNOWN)
+            dxo = DXO(data_kind=DataKind.METRICS, data={"validation_loss": validation_loss})
+            return dxo.to_shareable()
 
-        except Exception as e:
-            self.log_exception(fl_ctx, f"Exception in validating model from {model_owner}")
-            return make_reply(ReturnCode.EXECUTION_EXCEPTION)
+        else:
+            return make_reply(ReturnCode.TASK_UNKNOWN)

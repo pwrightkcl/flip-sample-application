@@ -125,23 +125,20 @@ class FLIP_TRAINER(Executor):
         datalist = []
         # loop over each accession id in the train set
         for accession_id in train_dataframe["accession_id"]:
-            try:
-                image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+            image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
 
-                accession_folder_path = os.path.join(image_data_folder_path, accession_id)
+            accession_folder_path = os.path.join(image_data_folder_path, accession_id)
 
-                all_images = list(Path(accession_folder_path).rglob("*.nii*"))
+            all_images = list(Path(accession_folder_path).rglob("*.nii*"))
 
-                print(f"Total .nii count found for single accession_id: {len(all_images)}")
-                for image in all_images:
-                    header = nib.load(str(image))
+            print(f"Total .nii count found for single accession_id: {len(all_images)}")
+            for image in all_images:
+                header = nib.load(str(image))
 
-                    # check is 3D and at least 128x128x128 in size
-                    if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
-                        datalist.append({"img": str(image), "seg": str(image)})
-            except Exception as e:
-                print(e)
-                pass
+                # check is 3D and at least 128x128x128 in size
+                if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
+                    datalist.append({"img": str(image), "seg": str(image)})
+
         print(f"Found {len(datalist)} files in train")
         return datalist
 

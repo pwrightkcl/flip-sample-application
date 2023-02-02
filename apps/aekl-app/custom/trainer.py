@@ -99,19 +99,15 @@ class FLIP_TRAINER(Executor):
 
         datalist = []
         for accession_id in train_dataframe["accession_id"]:
-            try:
-                image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
-                accession_folder_path = Path(image_data_folder_path) / accession_id
+            image_data_folder_path = self.flip.get_by_accession_number(self.project_id, accession_id)
+            accession_folder_path = Path(image_data_folder_path) / accession_id
 
-                for image in list(accession_folder_path.rglob("*.nii*")):
-                    header = nib.load(str(image))
+            for image in list(accession_folder_path.rglob("*.nii*")):
+                header = nib.load(str(image))
 
-                    # check is 3D and at least 128x128x128 in size
-                    if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
-                        datalist.append({"image": str(image)})
-
-            except Exception as e:
-                print(e)
+                # check is 3D and at least 128x128x128 in size
+                if len(header.shape) == 3 and all([dim >= 128 for dim in header.shape]):
+                    datalist.append({"image": str(image)})
 
         print(f"Found {len(datalist)} files in the training set")
         return datalist
@@ -205,11 +201,7 @@ class FLIP_TRAINER(Executor):
             self._n_iterations = len(self._train_loader)
 
             # Get model weights
-            try:
-                dxo = from_shareable(shareable)
-            except:
-                self.log_error(fl_ctx, "Error in extracting dxo from shareable.")
-                return make_reply(ReturnCode.BAD_TASK_DATA)
+            dxo = from_shareable(shareable)
 
             # Ensure data_kind is weights.
             if not dxo.data_kind == DataKind.WEIGHTS:
@@ -245,7 +237,6 @@ class FLIP_TRAINER(Executor):
 
         else:
             return make_reply(ReturnCode.TASK_UNKNOWN)
-
 
     def save_local_model(self, fl_ctx: FLContext):
         run_dir = fl_ctx.get_engine().get_workspace().get_run_dir(fl_ctx.get_prop(ReservedKey.RUN_NUM))
