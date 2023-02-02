@@ -223,5 +223,6 @@ class FLIP_VALIDATOR(Executor):
                 print(f"Validator Iteration: {i}, Metric: {total_mean_dice}, Num Images: {num_images}")
 
             metric = total_mean_dice / float(num_images)
+            self.flip.send_metrics_value(label="VAL_LOSS", value=metric, fl_ctx=fl_ctx)
 
         return metric

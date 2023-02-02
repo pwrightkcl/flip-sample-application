@@ -220,7 +220,7 @@ class FLIP_TRAINER(Executor):
                 f"Epoch: {epoch}/{self._epochs}, Iteration: {i}, " f"Loss: {average_loss}",
             )
 
-            self.flip.send_metrics_value(label="LOSS_FUNCTION", value=average_loss, fl_ctx=fl_ctx)
+            self.flip.send_metrics_value(label="TRAIN_LOSS", value=average_loss, fl_ctx=fl_ctx)
 
     def execute(
         self,
